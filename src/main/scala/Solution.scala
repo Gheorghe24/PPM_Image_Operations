@@ -9,22 +9,25 @@ object Solution {
   type Image = List[List[Pixel]]
   type GrayscaleImage = List[List[Double]]
 
+  // define constants
+  private val BLACK: Pixel = Pixel(0, 0, 0)
+  private val WHITE: Pixel = Pixel(255, 255, 255)
+  val PPMFormat = "P3"
+  val maximColor = "255"
+
+
   // prerequisites
   def fromStringPPM(image: List[Char]): Image = {
     val lines = image.mkString.split("\n").toList
-    val dimensions = lines(1).split(" ").map(_.toInt)
-    val width = dimensions.head
-    val height = dimensions.last
+    val width = lines(1).split(" ").head.toInt
+    val height = lines(1).split(" ").last.toInt
     val remainingLines = lines.drop(3)
-    val pixelImage = (0 until height).map { row =>
-      val start = row * width
-      val end = start + width
-      remainingLines.slice(start, end).map { pixelString =>
-        val pixelValues = pixelString.split(" ").map(_.toInt)
-        Pixel(pixelValues.head, pixelValues(1), pixelValues.last)
-      }
-    }
-    pixelImage.toList
+
+    val pixels = remainingLines.flatMap(line => line.split(" ").toList).map(_.toInt)
+    val pixelGroups = pixels.grouped(3).toList
+    val pixelRows = pixelGroups.grouped(width).toList
+
+    pixelRows.map(row => row.map(pixel => Pixel(pixel.head, pixel(1), pixel.last)))
   }
 
 
@@ -35,7 +38,12 @@ object Solution {
     val height = image.length
 
     // create the PPM header
-    val header = "P3\n" + width.toString + " " + height.toString + "\n" + "255\n"
+    val header = PPMFormat
+      + "\n"
+      + width.toString + " " + height.toString
+      + "\n"
+      + maximColor
+      + "\n"
 
     // create a string representation of each pixel and join them with newline characters
     val pixelStrings = image.flatten.map {
@@ -70,19 +78,17 @@ object Solution {
 
   // ex 3
   def rotate(image: Image, degrees: Integer): Image = {
-    val normalizedDegrees = degrees % 360
-    normalizedDegrees match {
+    degrees % 360 match {
       case 0 => image
       case 90 => transpose(image).reverse
       case 180 => image.reverse.map(_.reverse)
       case 270 => transpose(image.reverse)
-      case _ => rotate(rotate(image, normalizedDegrees - 90), 90)
+      case _ => image
     }
-
   }
 
   // ex 4
-  val gaussianBlurKernel: GrayscaleImage = List[List[Double]](
+  private val gaussianBlurKernel: GrayscaleImage = List[List[Double]](
     List(1, 4, 7, 4, 1),
     List(4, 16, 26, 16, 4),
     List(7, 26, 41, 26, 7),
@@ -90,13 +96,13 @@ object Solution {
     List(1, 4, 7, 4, 1)
   ).map(_.map(_ / 273))
 
-  val Gx: GrayscaleImage = List(
+  private val Gx: GrayscaleImage = List(
     List(-1, 0, 1),
     List(-2, 0, 2),
     List(-1, 0, 1)
   )
 
-  val Gy: GrayscaleImage = List(
+  private val Gy: GrayscaleImage = List(
     List(1, 2, 1),
     List(0, 0, 0),
     List(-1, -2, -1)
@@ -110,8 +116,8 @@ object Solution {
     val combinedImage = combineImagesWithOp((x, y) => Math.abs(x) + Math.abs(y))(Mx, My)
 
     combinedImage.map(_.map(pixel => {
-      if (pixel < threshold) Pixel(0, 0, 0)
-      else Pixel(255, 255, 255)
+      if (pixel < threshold) BLACK
+      else WHITE
     }))
   }
 
@@ -127,7 +133,7 @@ object Solution {
     combinedImage
   }
 
-  def applyConvolution(image: GrayscaleImage, kernel: GrayscaleImage): GrayscaleImage = {
+  private def applyConvolution(image: GrayscaleImage, kernel: GrayscaleImage): GrayscaleImage = {
     val radius = kernel.length / 2
     val neighbors = getNeighbors(image, radius)
     neighbors.map(row =>
@@ -138,7 +144,7 @@ object Solution {
   }
 
 
-  def replaceAtIndex[T](list: List[T], index: Int, value: T): List[T] = {
+  private def replaceAtIndex[T](list: List[T], index: Int, value: T): List[T] = {
     @tailrec
     def helper(currList: List[T], currIndex: Int, result: List[T]): List[T] = {
       currList match {
@@ -153,9 +159,8 @@ object Solution {
 
   // ex 5
   def moduloPascal(m: Integer, funct: Integer => Pixel, size: Integer): Image = {
-
-    // Initialize the imageMatrix with all black pixels
-    val imageMatrix = List.fill(size, size)(Pixel(0, 0, 0))
+    // Initialize the image matrix with all black pixels
+    val imageMatrix = List.fill(size, size)(BLACK)
 
     // Create a map to store the computed values of the Pascal triangle [(i,j) -> value]
     def computeValue(i: Int, j: Int, computedValues: Map[(Int, Int), Int]): (Map[(Int, Int), Int], Int) =
@@ -164,13 +169,14 @@ object Solution {
         case None =>
           if (j == 0 || j == i) (computedValues + ((i, j) -> 1), 1)
           else {
-            val (memo1, value1) = computeValue(i - 1, j - 1, computedValues)
-            val (memo2, value2) = computeValue(i - 1, j, memo1)
+            val (map1, value1) = computeValue(i - 1, j - 1, computedValues)
+            val (map2, value2) = computeValue(i - 1, j, map1)
             val result = (value1 + value2) % m
-            (memo2 + ((i, j) -> result), result)
+            (map2 + ((i, j) -> result), result)
           }
       }
 
+    // Compute the updated image matrix by applying 'funct' to each computed value
     val updatedImageMatrix = imageMatrix.zipWithIndex.map {
       case (row, rowIndex) =>
         (0 to rowIndex).foldLeft(row) { (acc, j) =>

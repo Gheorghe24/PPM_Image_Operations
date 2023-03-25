@@ -2,6 +2,7 @@ import util.Pixel
 import util.Util.{getNeighbors, toGrayScale}
 
 import java.lang.Math.round
+import scala.annotation.tailrec
 
 // Online viewer: https://0xc0de.fr/webppm/
 object Solution {
@@ -10,30 +11,22 @@ object Solution {
 
   // prerequisites
   def fromStringPPM(image: List[Char]): Image = {
-    // divide the string into lines
     val lines = image.mkString.split("\n").toList
-
-    // Parse the dimensions from the header line
     val dimensions = lines(1).split(" ").map(_.toInt)
-
-    // Extract width and height from the dimensions array
     val width = dimensions.head
-    // actually not needed
     val height = dimensions.last
-
-    // drop the first 3 lines and group the remaining lines into chunks of width
-    val remainingLines = lines.drop(3).grouped(width).toList
-
-    // create a list of pixels for each line
-    val pixelImage = remainingLines.map { line =>
-      line.map { pixelString =>
+    val remainingLines = lines.drop(3)
+    val pixelImage = (0 until height).map { row =>
+      val start = row * width
+      val end = start + width
+      remainingLines.slice(start, end).map { pixelString =>
         val pixelValues = pixelString.split(" ").map(_.toInt)
         Pixel(pixelValues.head, pixelValues(1), pixelValues.last)
       }
     }
-
-    pixelImage
+    pixelImage.toList
   }
+
 
   //from ppm image to string
   def toStringPPM(image: Image): List[Char] = {
@@ -49,7 +42,7 @@ object Solution {
       pixel => s"${pixel.red} ${pixel.green} ${pixel.blue}"
     }
     val stringPPM = header + pixelStrings.mkString("\n") + "\n"
-    // convert to List[Char]
+
     stringPPM.toList
   }
 
@@ -65,7 +58,7 @@ object Solution {
     }
   }
 
-  // make transpose generic to work also with GrayscaleImage
+  // generic transpose
   private def transpose[T](image: List[List[T]]): List[List[T]] = {
     // use match
     image match {
@@ -73,6 +66,7 @@ object Solution {
       case _ => image.map(_.head) :: transpose(image.map(_.tail))
     }
   }
+
 
   // ex 3
   def rotate(image: Image, degrees: Integer): Image = {
@@ -84,10 +78,11 @@ object Solution {
       case 270 => transpose(image.reverse)
       case _ => rotate(rotate(image, normalizedDegrees - 90), 90)
     }
+
   }
 
   // ex 4
-  private val gaussianBlurKernel: GrayscaleImage = List[List[Double]](
+  val gaussianBlurKernel: GrayscaleImage = List[List[Double]](
     List(1, 4, 7, 4, 1),
     List(4, 16, 26, 16, 4),
     List(7, 26, 41, 26, 7),
@@ -95,13 +90,13 @@ object Solution {
     List(1, 4, 7, 4, 1)
   ).map(_.map(_ / 273))
 
-  private val Gx: GrayscaleImage = List(
+  val Gx: GrayscaleImage = List(
     List(-1, 0, 1),
     List(-2, 0, 2),
     List(-1, 0, 1)
   )
 
-  private val Gy: GrayscaleImage = List(
+  val Gy: GrayscaleImage = List(
     List(1, 2, 1),
     List(0, 0, 0),
     List(-1, -2, -1)
@@ -112,7 +107,7 @@ object Solution {
     val blurredImage = applyConvolution(grayImage, gaussianBlurKernel)
     val Mx = applyConvolution(blurredImage, Gx)
     val My = applyConvolution(blurredImage, Gy)
-    val combinedImage = combineImagesWithOp((x, y) => Math.sqrt(x * x + y * y))(Mx, My)
+    val combinedImage = combineImagesWithOp((x, y) => Math.abs(x) + Math.abs(y))(Mx, My)
 
     combinedImage.map(_.map(pixel => {
       if (pixel < threshold) Pixel(0, 0, 0)
@@ -121,7 +116,7 @@ object Solution {
   }
 
 
-  private def combineImagesWithOp(op:(Double, Double) => Double)(Mx: GrayscaleImage, My: GrayscaleImage) = {
+  private def combineImagesWithOp(op: (Double, Double) => Double)(Mx: GrayscaleImage, My: GrayscaleImage) = {
     val combinedImage = Mx.zip(My).map {
       case (row1, row2) =>
         row1.zip(row2).map {
@@ -143,7 +138,49 @@ object Solution {
   }
 
 
+  def replaceAtIndex[T](list: List[T], index: Int, value: T): List[T] = {
+    @tailrec
+    def helper(currList: List[T], currIndex: Int, result: List[T]): List[T] = {
+      currList match {
+        case Nil => result.reverse
+        case _ :: tail if currIndex == index => helper(tail, currIndex + 1, value :: result)
+        case head :: tail => helper(tail, currIndex + 1, head :: result)
+      }
+    }
+
+    helper(list, 0, Nil)
+  }
 
   // ex 5
-  def moduloPascal(m: Integer, funct: Integer => Pixel, size: Integer): Image = ???
+  def moduloPascal(m: Integer, funct: Integer => Pixel, size: Integer): Image = {
+
+    // Initialize the imageMatrix with all black pixels
+    val imageMatrix = List.fill(size, size)(Pixel(0, 0, 0))
+
+    // Create a map to store the computed values of the Pascal triangle [(i,j) -> value]
+    def computeValue(i: Int, j: Int, computedValues: Map[(Int, Int), Int]): (Map[(Int, Int), Int], Int) =
+      computedValues.get((i, j)) match {
+        case Some(value) => (computedValues, value)
+        case None =>
+          if (j == 0 || j == i) (computedValues + ((i, j) -> 1), 1)
+          else {
+            val (memo1, value1) = computeValue(i - 1, j - 1, computedValues)
+            val (memo2, value2) = computeValue(i - 1, j, memo1)
+            val result = (value1 + value2) % m
+            (memo2 + ((i, j) -> result), result)
+          }
+      }
+
+    val updatedImageMatrix = imageMatrix.zipWithIndex.map {
+      case (row, rowIndex) =>
+        (0 to rowIndex).foldLeft(row) { (acc, j) =>
+          val (_, value) = computeValue(rowIndex, j, Map.empty[(Int, Int), Int])
+          replaceAtIndex(acc, j, funct(value))
+        }
+    }
+
+    updatedImageMatrix
+  }
+
+
 }
